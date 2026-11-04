@@ -16,9 +16,8 @@ Before the layout runs, it shortens long data wires:
 
 - **Function parameters:** wires from the function entry become **Get &lt;Parameter&gt;** nodes beside each node that reads them. By-reference parameters keep their wire.
 - **Shared pure nodes:** a pure node that feeds several exec nodes is copied, so each exec node gets its own copy. Behaviour is unchanged, because Blueprint evaluates pure nodes again for every exec node that reads them.
-- **Outputs used far away (functions only):** when an exec node's output is read two or more exec steps later, it is stored in a new local variable. A **Set** node is placed right after the producing node, and each far reader gets a **Get** node. Readers right after the producer keep their direct wire.
 
-It never deletes nodes. Undo takes two Ctrl+Z when wires were shortened: one for the layout, one for the added nodes.
+Neither changes what the graph does. It never creates variables or deletes nodes, and one Ctrl+Z undoes the whole format.
 
 ## Install
 
@@ -48,7 +47,7 @@ To format with a key, bind one under **Editor Preferences → Keyboard Shortcuts
 ## Known limitations
 
 - When two branches join back into the same node, it is placed next to its first user, so some exec wires stay long.
-- Event graphs have no local variables, so outputs of exec nodes there (for example custom event parameters) can still have long wires.
+- An exec node's output that is read several exec steps later keeps its long wire (for example a function call's return value, or a custom event parameter).
 - When you format only some nodes, they can end up overlapping nodes that were not selected.
 - The button appears in the regular Blueprint editor and in the Graph tab of the Widget Blueprint editor. Animation Blueprints are not supported yet.
 

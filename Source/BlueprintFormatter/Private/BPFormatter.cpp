@@ -11,10 +11,6 @@
 #include "Framework/Notifications/NotificationManager.h"
 #include "GraphEditor.h"
 #include "HAL/PlatformTime.h"
-#include "K2Node_FunctionEntry.h"
-#include "K2Node_VariableGet.h"
-#include "Kismet2/BlueprintEditorUtils.h"
-#include "Containers/Ticker.h"
 #include "Layout/Geometry.h"
 #include "Layout/ArrangedWidget.h"
 #include "SGraphNode.h"
@@ -179,9 +175,8 @@ namespace
 	 * Pin offsets come from arranging the prepassed widget ourselves, so they do not
 	 * depend on whether the node has been painted (culled / off-screen nodes are fine).
 	 */
-	bool Measure(SGraphEditor& GraphEditor, const TArray<UEdGraphNode*>& Nodes, TMap<const UEdGraphNode*, FMeasured>& Out, FText& OutError, bool& bOutMissingWidget)
+	bool Measure(SGraphEditor& GraphEditor, const TArray<UEdGraphNode*>& Nodes, TMap<const UEdGraphNode*, FMeasured>& Out, FText& OutError)
 	{
-		bOutMissingWidget = false;
 		SGraphPanel* Panel = GraphEditor.GetGraphPanel();
 		if (!Panel)
 		{
@@ -207,7 +202,6 @@ namespace
 			if (!Widget.IsValid())
 			{
 				OutError = FText::Format(LOCTEXT("NoWidget", "Format: node '{0}' has no widget yet. Try again."), Node->GetNodeTitle(ENodeTitleType::ListView));
-				bOutMissingWidget = true;
 				bOk = false;
 				break;
 			}
@@ -329,34 +323,8 @@ namespace
 		return Fits;
 	}
 
-	/** Measures and arranges Scope. Returns false (and touches nothing) when a node widget is not built yet. */
-	bool LayoutScope(const TSharedPtr<SGraphEditor>& GraphEditor, UEdGraph* Graph, const TArray<UEdGraphNode*>& Scope, double StartTime, bool bReportMissingWidget);
-
-	/** New getter nodes get their widgets on a later frame, so retry the layout for a short while. */
-	void ScheduleLayout(TWeakPtr<SGraphEditor> WeakEditor, TWeakObjectPtr<UEdGraph> WeakGraph, TArray<TWeakObjectPtr<UEdGraphNode>> WeakScope, double StartTime)
-	{
-		TSharedRef<int32> Attempts = MakeShared<int32>(0);
-		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([WeakEditor, WeakGraph, WeakScope, StartTime, Attempts](float)
-		{
-			TSharedPtr<SGraphEditor> Editor = WeakEditor.Pin();
-			UEdGraph* Graph = WeakGraph.Get();
-			if (!Editor.IsValid() || !Graph || Editor->GetCurrentGraph() != Graph)
-			{
-				return false;
-			}
-			TArray<UEdGraphNode*> Scope;
-			for (const TWeakObjectPtr<UEdGraphNode>& Weak : WeakScope)
-			{
-				if (UEdGraphNode* Node = Weak.Get())
-				{
-					Scope.Add(Node);
-				}
-			}
-			const bool bLastTry = ++(*Attempts) >= 30;
-			const bool bDone = LayoutScope(Editor, Graph, Scope, StartTime, bLastTry);
-			return !bDone && !bLastTry; // true = keep ticking
-		}));
-	}
+	/** Measures and arranges Scope. Call inside a transaction. Returns true when it moved or resized anything. */
+	bool LayoutScope(SGraphEditor& GraphEditor, UEdGraph* Graph, const TArray<UEdGraphNode*>& Scope, double StartTime);
 }
 
 void FormatGraph(const TSharedPtr<SGraphEditor>& GraphEditor)
@@ -376,50 +344,37 @@ void FormatGraph(const TSharedPtr<SGraphEditor>& GraphEditor)
 		return;
 	}
 
-	FWireStats Stats;
+	// Wire shortening and layout share one transaction, so one Ctrl+Z undoes the whole format.
+	FScopedTransaction Transaction(LOCTEXT("FormatTransaction", "Format Graph"));
+
+	const FWireStats Stats = ShortenWires(Graph, Scope); // appends the nodes it adds to Scope
+	if (Stats.NodesAdded() > 0)
 	{
-		FScopedTransaction Transaction(LOCTEXT("ShortenWiresTransaction", "Format Graph: Shorten Wires"));
-		Stats = ShortenWires(Graph, Scope); // appends the nodes it adds to Scope
-		if (Stats.NodesAdded() == 0)
+		UE_LOG(LogBlueprintFormatter, Log, TEXT("Shortened wires: %d parameter getters, %d pure node copies"), Stats.ParamGetters, Stats.PureCopies);
+		// New nodes have no widgets until the panel's next update. Build them now so they can be measured.
+		if (SGraphPanel* Panel = GraphEditor->GetGraphPanel())
 		{
-			Transaction.Cancel();
+			Panel->Update();
 		}
 	}
 
-	if (Stats.NodesAdded() == 0)
+	const bool bLaidOut = LayoutScope(*GraphEditor, Graph, Scope, StartTime);
+	if (Stats.NodesAdded() == 0 && !bLaidOut)
 	{
-		LayoutScope(GraphEditor, Graph, Scope, StartTime, /*bReportMissingWidget*/ true);
-		return;
+		Transaction.Cancel();
 	}
-
-	UE_LOG(LogBlueprintFormatter, Log, TEXT("Shortened wires: %d parameter getters, %d pure node copies, %d local variables (%d getters)"),
-		Stats.ParamGetters, Stats.PureCopies, Stats.LocalVariables, Stats.LocalGetters);
-
-	// The panel builds widgets for the new nodes on its next update; lay out once they exist.
-	Graph->NotifyGraphChanged();
-	TArray<TWeakObjectPtr<UEdGraphNode>> WeakScope;
-	for (UEdGraphNode* Node : Scope)
-	{
-		WeakScope.Add(Node);
-	}
-	ScheduleLayout(GraphEditor, Graph, MoveTemp(WeakScope), StartTime);
 }
 
 namespace
 {
-bool LayoutScope(const TSharedPtr<SGraphEditor>& GraphEditor, UEdGraph* Graph, const TArray<UEdGraphNode*>& Scope, double StartTime, bool bReportMissingWidget)
+bool LayoutScope(SGraphEditor& GraphEditor, UEdGraph* Graph, const TArray<UEdGraphNode*>& Scope, double StartTime)
 {
 	TMap<const UEdGraphNode*, FMeasured> Measured;
 	FText Error;
-	bool bMissingWidget = false;
-	if (!Measure(*GraphEditor, Scope, Measured, Error, bMissingWidget))
+	if (!Measure(GraphEditor, Scope, Measured, Error))
 	{
-		if (!bMissingWidget || bReportMissingWidget)
-		{
-			Notify(Error, true);
-			return true; // give up
-		}
-		return false; // retry next frame
+		Notify(Error, true);
+		return false;
 	}
 
 	// Copy into the plain layout graph.
@@ -481,8 +436,7 @@ bool LayoutScope(const TSharedPtr<SGraphEditor>& GraphEditor, UEdGraph* Graph, c
 
 	Layout(Nodes, Edges, FSettings());
 
-	// Write back. Positions only: links are never touched.
-	FScopedTransaction Transaction(LOCTEXT("FormatTransaction", "Format Graph"));
+	// Write back. Positions only: links are never touched here.
 	Graph->Modify();
 
 	TMap<const UEdGraphNode*, FSlateRect> NewRects;
@@ -531,10 +485,6 @@ bool LayoutScope(const TSharedPtr<SGraphEditor>& GraphEditor, UEdGraph* Graph, c
 		}
 	}
 
-	if (Moved == 0 && !bResizedComment)
-	{
-		Transaction.Cancel();
-	}
 	if (bResizedComment)
 	{
 		// Comment widgets read their size only when constructed.
@@ -543,7 +493,7 @@ bool LayoutScope(const TSharedPtr<SGraphEditor>& GraphEditor, UEdGraph* Graph, c
 
 	UE_LOG(LogBlueprintFormatter, Log, TEXT("Formatted %d nodes (%d moved, %d edges, %d comments) in %.1f ms"),
 		Scope.Num(), Moved, Edges.Num(), Comments.Num(), (FPlatformTime::Seconds() - StartTime) * 1000.0);
-	return true;
+	return Moved > 0 || bResizedComment;
 }
 }
 }
