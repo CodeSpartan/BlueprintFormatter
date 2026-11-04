@@ -43,7 +43,7 @@ To format with a key, bind one under **Editor Preferences → Keyboard Shortcuts
 
 - When two branches join back into the same node, or one pure node feeds several nodes, it is placed next to its first user, so some wires stay long.
 - When you format only some nodes, they can end up overlapping nodes that were not selected.
-- The button appears in the regular Blueprint editor only. Widget Blueprints and Animation Blueprints are not supported yet.
+- The button appears in the regular Blueprint editor and in the Graph tab of the Widget Blueprint editor. Animation Blueprints are not supported yet.
 
 ## Tests
 

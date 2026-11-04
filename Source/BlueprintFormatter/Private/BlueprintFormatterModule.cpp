@@ -86,8 +86,27 @@ private:
 	void RegisterMenus()
 	{
 		FToolMenuOwnerScoped Owner(this);
-		// Mode toolbars (AssetEditor.BlueprintEditor.ToolBar.<Mode>) inherit from this one.
-		UToolMenu* Menu = UToolMenus::Get()->ExtendMenu("AssetEditor.BlueprintEditor.ToolBar");
+
+		// Normal Blueprints: mode toolbars (AssetEditor.BlueprintEditor.ToolBar.<Mode>) inherit from this one.
+		// Widget Blueprints use their own toolkit name, so their toolbars are AssetEditor.WidgetBlueprintEditor.ToolBar.<Mode>.
+		// Only the Graph mode ("GraphName") gets the button there; the Designer tab has no node graph to format.
+		static const FName ToolbarNames[] =
+		{
+			"AssetEditor.BlueprintEditor.ToolBar",
+			"AssetEditor.WidgetBlueprintEditor.ToolBar.GraphName",
+		};
+		for (const FName& ToolbarName : ToolbarNames)
+		{
+			AddFormatButton(UToolMenus::Get()->ExtendMenu(ToolbarName));
+		}
+	}
+
+	void AddFormatButton(UToolMenu* Menu)
+	{
+		if (!Menu)
+		{
+			return;
+		}
 		FToolMenuSection& Section = Menu->FindOrAddSection("BlueprintFormatter");
 
 		FToolUIAction Action;
@@ -110,7 +129,8 @@ private:
 	/** Maps the Format command into each Blueprint editor so a user-bound shortcut works. */
 	void OnAssetOpened(UObject* Asset, IAssetEditorInstance* Instance)
 	{
-		if (!Instance || Instance->GetEditorName() != FName("BlueprintEditor"))
+		// FWidgetBlueprintEditor derives from FBlueprintEditor, so the cast below is valid for both.
+		if (!Instance || (Instance->GetEditorName() != FName("BlueprintEditor") && Instance->GetEditorName() != FName("WidgetBlueprintEditor")))
 		{
 			return;
 		}
