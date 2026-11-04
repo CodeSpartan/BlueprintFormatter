@@ -1,0 +1,21 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Blueprint Formatter",
+	"Description": "Adds a Format button to the Blueprint editor that auto-arranges the open graph or the selected nodes.",
+	"DocsURL": "https://github.com/CodeSpartan/BlueprintFormatter",
+	"Category": "Editor",
+	"CreatedBy": "CodeSpartan",
+	"EnabledByDefault": true,
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "BlueprintFormatter",
+			"Type": "Editor",
+			"LoadingPhase": "PostEngineInit"
+		}
+	]
+}
