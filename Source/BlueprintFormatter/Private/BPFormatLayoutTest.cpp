@@ -159,7 +159,8 @@ bool FBPFormatLayoutRandomTest::RunTest(const FString& Parameters)
 			for (int32 p = 0; p < NumIn; ++p) In.Add(30.f + 22.f * p);
 			for (int32 p = 0; p < NumOut; ++p) Out.Add(30.f + 22.f * p);
 			const float H = 40.f + 22.f * FMath::Max(NumIn, NumOut);
-			AddNode(Nodes, { Rng.FRandRange(-3000, 3000), Rng.FRandRange(-3000, 3000) }, { Rng.FRandRange(60, 320), H }, In, Out, bExec);
+			// FRandRange returns double in UE 5.8; cast explicitly so the FVector2f brace-init is not a narrowing conversion.
+			AddNode(Nodes, { (float)Rng.FRandRange(-3000, 3000), (float)Rng.FRandRange(-3000, 3000) }, { (float)Rng.FRandRange(60, 320), H }, In, Out, bExec);
 		}
 		TArray<TArray<bool>> InUsed;
 		InUsed.SetNum(Num);
